@@ -324,7 +324,7 @@ func appendRequests(datadogGraph *datadog.Graph, terraformRequests *[]interface{
 		log.Printf("[DataDog] request: %v", pretty.Sprint(t))
 		query := datadog.String(t["q"].(string))
 		serviceName := (*service).(string)
-		compiledQuery := strings.Replace(*query, "%service%", serviceName, 1)
+		compiledQuery := strings.Replace(*query, "%service%", serviceName, -1)
 
 		d := datadog.GraphDefinitionRequest{
 			Query:      datadog.String(compiledQuery),
@@ -404,9 +404,39 @@ func appendMarkers(datadogGraph *datadog.Graph, terraformMarkers *[]interface{})
 	}
 }
 
+func buildGraphs(terraformGraphs *[]interface{}) *[]datadog.Graph {
+	datadogGraphs := make([]datadog.Graph, 0, 0)
+	for _, t_ := range *terraformGraphs {
+		t := t_.(map[string]interface{})
+
+		services := t["services"].([]interface{})
+
+		if len(services) > 0 {
+			for _, service := range services {
+				log.Println("[DataDog] Generating graph for %s service", service.(string))
+
+				graph := buildGraph(t, service)
+				datadogGraphs = append(datadogGraphs, graph)
+			}
+		} else {
+			graph := buildGraph(t, "")
+			datadogGraphs = append(datadogGraphs, graph)
+		}
+
+	}
+
+	return &datadogGraphs
+}
+
 func buildGraph(t map[string]interface{}, service interface{}) datadog.Graph {
+	title := t["title"].(string)
+
+	if len(title) > 0 {
+		title = strings.Replace(title, "%service%", service.(string), -1)
+	}
+
 	d := datadog.Graph{
-		Title: datadog.String(t["title"].(string)),
+		Title: datadog.String(title),
 	}
 	d.Definition = &datadog.GraphDefinition{}
 	d.Definition.SetViz(t["viz"].(string))
@@ -488,28 +518,6 @@ func buildGraph(t map[string]interface{}, service interface{}) datadog.Graph {
 	v = t["request"].([]interface{})
 	appendRequests(&d, &v, &service)
 	return d
-}
-
-func buildGraphs(terraformGraphs *[]interface{}) *[]datadog.Graph {
-	datadogGraphs := make([]datadog.Graph, 0, 0)
-	for _, t_ := range *terraformGraphs {
-		t := t_.(map[string]interface{})
-
-		v, ok := t["services"]
-
-		if ok {
-			services := v.([]interface{})
-			for _, service := range services {
-				graph := buildGraph(t, service)
-				datadogGraphs = append(datadogGraphs, graph)
-			}
-		} else {
-			graph := buildGraph(t, "")
-			datadogGraphs = append(datadogGraphs, graph)
-		}
-
-	}
-	return &datadogGraphs
 }
 
 func buildTimeboard(d *schema.ResourceData) (*datadog.Dashboard, error) {

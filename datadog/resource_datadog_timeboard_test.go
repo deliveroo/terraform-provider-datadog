@@ -107,6 +107,20 @@ resource "datadog_timeboard" "acceptance_test" {
     custom_unit = "hits"
     precision = "*"
     text_align = "left"
+	}
+	graph {
+		title = "%service% - CPU"
+		viz   = "timeseries"
+		services = ["changelog-dashboard-web", "changelog-dashboard-worker"]
+
+		request {
+			q    = "avg:aws.ecs.cpuutilization.maximum{clustername:production,servicename:%service%}"
+			type = "line"
+			style {
+				palette = "classic"
+				type = "solid"
+			}
+		}
   }
   template_variable {
     name = "host"
@@ -185,6 +199,9 @@ func TestAccDatadogTimeboard_update(t *testing.T) {
 			resource.TestCheckResourceAttr("datadog_timeboard.acceptance_test", "graph.1.text_align", "left"),
 			resource.TestCheckResourceAttr("datadog_timeboard.acceptance_test", "template_variable.0.name", "host"),
 			resource.TestCheckResourceAttr("datadog_timeboard.acceptance_test", "template_variable.0.prefix", "host"),
+			resource.TestCheckResourceAttr("datadog_timeboard.acceptance_test", "graph.2.services.#", "2"),
+			resource.TestCheckResourceAttr("datadog_timeboard.acceptance_test", "graph.2.services.0", "changelog-dashboard-web"),
+			resource.TestCheckResourceAttr("datadog_timeboard.acceptance_test", "graph.2.services.1", "changelog-dashboard-worker"),
 		),
 	}
 
