@@ -654,5 +654,5 @@
 			"versionExact": "v1.6.1"
 		}
 	],
-	"rootPath": "github.com/terraform-providers/terraform-provider-datadog"
+	"rootPath": "github.com/deliveroo/terraform-provider-datadog"
 }
