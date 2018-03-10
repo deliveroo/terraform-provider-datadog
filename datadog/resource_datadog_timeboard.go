@@ -191,6 +191,14 @@ func resourceDatadogTimeboard() *schema.Resource {
 						Type: schema.TypeString,
 					},
 				},
+				"services": &schema.Schema{
+					Type:        schema.TypeList,
+					Optional:    true,
+					Description: "List of ECS services. When set, this graph block will be duplicated for each service",
+					Elem: &schema.Schema{
+						Type: schema.TypeString,
+					},
+				},
 				"include_no_metric_hosts": &schema.Schema{
 					Type:        schema.TypeBool,
 					Optional:    true,
@@ -310,12 +318,16 @@ func buildTemplateVariables(terraformTemplateVariables *[]interface{}) *[]datado
 	return &datadogTemplateVariables
 }
 
-func appendRequests(datadogGraph *datadog.Graph, terraformRequests *[]interface{}) {
+func appendRequests(datadogGraph *datadog.Graph, terraformRequests *[]interface{}, service interface{}) {
 	for _, t_ := range *terraformRequests {
 		t := t_.(map[string]interface{})
 		log.Printf("[DataDog] request: %v", pretty.Sprint(t))
+		query := datadog.String(t["q"].(string))
+		serviceName := service.(string)
+		compiledQuery := strings.Replace(*query, "%service%", serviceName, -1)
+
 		d := datadog.GraphDefinitionRequest{
-			Query:      datadog.String(t["q"].(string)),
+			Query:      datadog.String(compiledQuery),
 			Type:       datadog.String(t["type"].(string)),
 			Aggregator: datadog.String(t["aggregator"].(string)),
 		}
@@ -393,95 +405,119 @@ func appendMarkers(datadogGraph *datadog.Graph, terraformMarkers *[]interface{})
 }
 
 func buildGraphs(terraformGraphs *[]interface{}) *[]datadog.Graph {
-	datadogGraphs := make([]datadog.Graph, len(*terraformGraphs))
-	for i, t_ := range *terraformGraphs {
+	datadogGraphs := make([]datadog.Graph, 0, 0)
+	for _, t_ := range *terraformGraphs {
 		t := t_.(map[string]interface{})
 
-		datadogGraphs[i] = datadog.Graph{
-			Title: datadog.String(t["title"].(string)),
-		}
+		services := t["services"].([]interface{})
 
-		d := &datadogGraphs[i]
-		d.Definition = &datadog.GraphDefinition{}
-		d.Definition.SetViz(t["viz"].(string))
+		if len(services) > 0 {
+			for _, service := range services {
+				log.Println("[DataDog] Generating graph for %s service", service.(string))
 
-		if v, ok := t["yaxis"]; ok {
-			yaxis := v.(map[string]interface{})
-			if v, ok := yaxis["min"]; ok {
-				min, _ := strconv.ParseFloat(v.(string), 64)
-				d.Definition.Yaxis.SetMin(min)
+				graph := buildGraph(t, service)
+				datadogGraphs = append(datadogGraphs, graph)
 			}
-			if v, ok := yaxis["max"]; ok {
-				max, _ := strconv.ParseFloat(v.(string), 64)
-				d.Definition.Yaxis.SetMax(max)
-			}
-			if v, ok := yaxis["scale"]; ok {
-				d.Definition.Yaxis.SetScale(v.(string))
-			}
+		} else {
+			graph := buildGraph(t, "")
+			datadogGraphs = append(datadogGraphs, graph)
 		}
 
-		if v, ok := t["autoscale"]; ok {
-			d.Definition.SetAutoscale(v.(bool))
-		}
-
-		if v, ok := t["text_align"]; ok {
-			d.Definition.SetTextAlign(v.(string))
-		}
-
-		if precision, ok := t["precision"]; ok {
-			d.Definition.SetPrecision(precision.(string))
-		}
-
-		if v, ok := t["custom_unit"]; ok {
-			d.Definition.SetCustomUnit(v.(string))
-		}
-
-		if style, ok := t["style"]; ok {
-			s := style.(map[string]interface{})
-
-			gs := datadog.Style{}
-
-			if v, ok := s["palette"]; ok {
-				gs.SetPalette(v.(string))
-			}
-
-			if v, ok := s["palette_flip"]; ok {
-				pf, _ := strconv.ParseBool(v.(string))
-				gs.SetPaletteFlip(pf)
-			}
-			d.Definition.SetStyle(gs)
-
-		}
-
-		if v, ok := t["group"]; ok {
-			for _, g := range v.([]interface{}) {
-				d.Definition.Groups = append(d.Definition.Groups, g.(string))
-			}
-		}
-
-		if includeNoMetricHosts, ok := t["include_no_metric_hosts"]; ok {
-			d.Definition.SetIncludeNoMetricHosts(includeNoMetricHosts.(bool))
-		}
-
-		if v, ok := t["scope"]; ok {
-			for _, s := range v.([]interface{}) {
-				d.Definition.Scopes = append(d.Definition.Scopes, s.(string))
-			}
-		}
-
-		if v, ok := t["include_ungrouped_hosts"]; ok {
-			d.Definition.SetIncludeUngroupedHosts(v.(bool))
-		}
-		v := t["marker"].([]interface{})
-		appendMarkers(d, &v)
-
-		v = t["events"].([]interface{})
-		appendEvents(d, &v)
-
-		v = t["request"].([]interface{})
-		appendRequests(d, &v)
 	}
+
 	return &datadogGraphs
+}
+
+func buildGraph(t map[string]interface{}, service interface{}) datadog.Graph {
+	title := t["title"].(string)
+
+	if len(title) > 0 {
+		title = strings.Replace(title, "%service%", service.(string), -1)
+	}
+
+	d := datadog.Graph{
+		Title: datadog.String(title),
+	}
+	d.Definition = &datadog.GraphDefinition{}
+	d.Definition.SetViz(t["viz"].(string))
+
+	if v, ok := t["yaxis"]; ok {
+		yaxis := v.(map[string]interface{})
+		if v, ok := yaxis["min"]; ok {
+			min, _ := strconv.ParseFloat(v.(string), 64)
+			d.Definition.Yaxis.SetMin(min)
+		}
+		if v, ok := yaxis["max"]; ok {
+			max, _ := strconv.ParseFloat(v.(string), 64)
+			d.Definition.Yaxis.SetMax(max)
+		}
+		if v, ok := yaxis["scale"]; ok {
+			d.Definition.Yaxis.SetScale(v.(string))
+		}
+	}
+
+	if v, ok := t["autoscale"]; ok {
+		d.Definition.SetAutoscale(v.(bool))
+	}
+
+	if v, ok := t["text_align"]; ok {
+		d.Definition.SetTextAlign(v.(string))
+	}
+
+	if precision, ok := t["precision"]; ok {
+		d.Definition.SetPrecision(precision.(string))
+	}
+
+	if v, ok := t["custom_unit"]; ok {
+		d.Definition.SetCustomUnit(v.(string))
+	}
+
+	if style, ok := t["style"]; ok {
+		s := style.(map[string]interface{})
+
+		gs := datadog.Style{}
+
+		if v, ok := s["palette"]; ok {
+			gs.SetPalette(v.(string))
+		}
+
+		if v, ok := s["palette_flip"]; ok {
+			pf, _ := strconv.ParseBool(v.(string))
+			gs.SetPaletteFlip(pf)
+		}
+		d.Definition.SetStyle(gs)
+
+	}
+
+	if v, ok := t["group"]; ok {
+		for _, g := range v.([]interface{}) {
+			d.Definition.Groups = append(d.Definition.Groups, g.(string))
+		}
+	}
+
+	if includeNoMetricHosts, ok := t["include_no_metric_hosts"]; ok {
+		d.Definition.SetIncludeNoMetricHosts(includeNoMetricHosts.(bool))
+	}
+
+	if v, ok := t["scope"]; ok {
+		for _, s := range v.([]interface{}) {
+			d.Definition.Scopes = append(d.Definition.Scopes, s.(string))
+		}
+	}
+
+	if v, ok := t["include_ungrouped_hosts"]; ok {
+		d.Definition.SetIncludeUngroupedHosts(v.(bool))
+	}
+
+	v := t["marker"].([]interface{})
+	appendMarkers(&d, &v)
+
+	v = t["events"].([]interface{})
+	appendEvents(&d, &v)
+
+	v = t["request"].([]interface{})
+	appendRequests(&d, &v, service)
+	return d
 }
 
 func buildTimeboard(d *schema.ResourceData) (*datadog.Dashboard, error) {
@@ -495,6 +531,7 @@ func buildTimeboard(d *schema.ResourceData) (*datadog.Dashboard, error) {
 	}
 	terraformGraphs := d.Get("graph").([]interface{})
 	terraformTemplateVariables := d.Get("template_variable").([]interface{})
+
 	return &datadog.Dashboard{
 		Id:                datadog.Int(id),
 		Title:             datadog.String(d.Get("title").(string)),

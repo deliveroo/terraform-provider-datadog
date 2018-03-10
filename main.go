@@ -1,8 +1,8 @@
 package main
 
 import (
+	"github.com/deliveroo/terraform-provider-datadog/datadog"
 	"github.com/hashicorp/terraform/plugin"
-	"github.com/terraform-providers/terraform-provider-datadog/datadog"
 )
 
 func main() {
