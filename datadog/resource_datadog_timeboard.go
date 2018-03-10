@@ -318,12 +318,12 @@ func buildTemplateVariables(terraformTemplateVariables *[]interface{}) *[]datado
 	return &datadogTemplateVariables
 }
 
-func appendRequests(datadogGraph *datadog.Graph, terraformRequests *[]interface{}, service *interface{}) {
+func appendRequests(datadogGraph *datadog.Graph, terraformRequests *[]interface{}, service interface{}) {
 	for _, t_ := range *terraformRequests {
 		t := t_.(map[string]interface{})
 		log.Printf("[DataDog] request: %v", pretty.Sprint(t))
 		query := datadog.String(t["q"].(string))
-		serviceName := (*service).(string)
+		serviceName := service.(string)
 		compiledQuery := strings.Replace(*query, "%service%", serviceName, -1)
 
 		d := datadog.GraphDefinitionRequest{
@@ -516,7 +516,7 @@ func buildGraph(t map[string]interface{}, service interface{}) datadog.Graph {
 	appendEvents(&d, &v)
 
 	v = t["request"].([]interface{})
-	appendRequests(&d, &v, &service)
+	appendRequests(&d, &v, service)
 	return d
 }
 
