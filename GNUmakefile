@@ -6,6 +6,11 @@ default: build
 build: fmtcheck
 	go install
 
+cross-build: fmtcheck
+	mkdir -p build/linux_amd64 plugins/darwin_amd64
+	env GOOS=linux GOARCH=arm go build -o build/linux_amd64/terraform-provider-datadog .
+	go build -o build/darwin_amd64/terraform-provider-datadog .
+
 test: fmtcheck
 	go test -i $(TEST) || exit 1
 	echo $(TEST) | \

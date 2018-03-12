@@ -61,3 +61,12 @@ In order to run the full suite of Acceptance tests, run `make testacc`.
 ```sh
 $ make testacc
 ```
+
+# Development
+
+The simplest way to work with this plugin is copying your `terraform` executable to your $GOPATH/bin directory, once you do this Terraform will
+first see your binary and use it as plugin. To create the binary running `make build` should be enough. You need Go 1.9 or above (`brew install go` should do it)
+
+When you actually want to use the plugin in your terraform repo, you need to add it to `deliveroo/custom-terraform-providers` repo. For Terraform Enterprise you need
+the binary for your plugin for Linux 64-bit. For MacOS you would need the same for MacOS which is Darwin-64. To be quickly build those binaries you can use `make cross-build`
+which would generate those under `build` directory in project directory. Then you need to copy those over to the `deliveroo/customer-terraform-providers` repo.
