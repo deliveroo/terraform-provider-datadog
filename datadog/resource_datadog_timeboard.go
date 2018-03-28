@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"regexp"
 	"strconv"
 	"strings"
 
@@ -724,6 +725,12 @@ func buildTerraformGraph(datadog_graph datadog.Graph) map[string]interface{} {
 	return graph
 }
 
+func buildTerraformGraphWithServices(datadogGraph datadog.Graph, services []string) map[string]interface{} {
+	graph := buildTerraformGraph(datadogGraph)
+	graph["services"] = services
+	return graph
+}
+
 func resourceDatadogTimeboardRead(d *schema.ResourceData, meta interface{}) error {
 	id, err := strconv.Atoi(d.Id())
 	if err != nil {
@@ -741,10 +748,62 @@ func resourceDatadogTimeboardRead(d *schema.ResourceData, meta interface{}) erro
 		return err
 	}
 
+	terraformGraphDefinitions := d.Get("graph").([]interface{})
 	graphs := []map[string]interface{}{}
-	for _, datadog_graph := range timeboard.Graphs {
-		graphs = append(graphs, buildTerraformGraph(datadog_graph))
+
+	datadogGraphsByTitle := make(map[string]datadog.Graph)
+	for _, v := range timeboard.Graphs {
+		datadogGraphsByTitle[v.GetTitle()] = v
 	}
+
+	for _, td := range terraformGraphDefinitions {
+		terraformDefinition := td.(map[string]interface{})
+		terraformDefinitionTitle := terraformDefinition["title"].(string)
+
+		// If this is a template definition, we would like to iterate over
+		// all of the graphs that are derived from this graph and replace actual
+		// services names with %service% placeholder for the title and request queries.
+		// In addition to that, we will generate services array and set that attribute while
+		// building the terraform graph so Terraform will not think it didn't create the graph
+		if strings.Index(terraformDefinitionTitle, "%service%") > -1 {
+			servicesForTemplate := make([]string, 0)
+
+			var datadogGraph datadog.Graph
+
+			for i := 0; i < len(timeboard.Graphs); i++ {
+				datadogGraph = timeboard.Graphs[i]
+				re := regexp.MustCompile(strings.Replace(terraformDefinitionTitle, "%service%", "([a-zA-Z0-9\\-_]+)", -1))
+				results := re.FindStringSubmatch(datadogGraph.GetTitle())
+
+				if len(results) > 0 {
+					servicesForTemplate = append(servicesForTemplate, results[1])
+				}
+			}
+
+			if len(servicesForTemplate) > 0 {
+				datadogGraph.SetTitle(terraformDefinitionTitle)
+				definitionRequests := terraformDefinition["request"].([]interface{})
+
+				requests := make([]datadog.GraphDefinitionRequest, 0)
+				for i, r := range datadogGraph.Definition.Requests {
+					dr := definitionRequests[i].(map[string]interface{})
+
+					query := dr["q"].(string)
+					r.Query = &query
+					requests = append(requests, r)
+				}
+
+				definition := datadogGraph.Definition
+				definition.Requests = requests
+				datadogGraph.Definition = definition
+
+				graphs = append(graphs, buildTerraformGraphWithServices(datadogGraph, servicesForTemplate))
+			}
+		} else {
+			graphs = append(graphs, buildTerraformGraph(datadogGraphsByTitle[terraformDefinitionTitle]))
+		}
+	}
+
 	log.Printf("[DataDog] graphs: %v", pretty.Sprint(graphs))
 	if err := d.Set("graph", graphs); err != nil {
 		return err
